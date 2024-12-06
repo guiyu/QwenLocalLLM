@@ -8,6 +8,7 @@ import logging
 import shutil
 import json
 from onnxruntime.quantization import quantize_dynamic, QuantType
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +22,17 @@ class AndroidModelConverter:
         """执行模型转换"""
         try:
             from transformers import AutoModelForCausalLM, AutoTokenizer
+            import torch
             
             logger.info("Loading model and tokenizer...")
+            # 使用半精度加载模型以减少内存使用
             model = AutoModelForCausalLM.from_pretrained(
                 str(self.model_path),
-                trust_remote_code=True
+                trust_remote_code=True,
+                torch_dtype=torch.float16,  # 使用 FP16
+                low_cpu_mem_usage=True
             )
-            model.eval()  # 设置为评估模式
+            model.eval()
             
             tokenizer = AutoTokenizer.from_pretrained(
                 str(self.model_path),
@@ -35,36 +40,66 @@ class AndroidModelConverter:
             )
             
             logger.info("Converting model to ONNX format...")
-            # 准备输入
-            dummy_input = torch.randint(100, (1, 64))
-            
-            # 导出ONNX，使用更高的opset版本
             onnx_path = self.output_dir / "model.onnx"
             
-            # 增加更多导出配置
+            # 配置ONNX导出选项
+            dynamic_axes = {
+                'input': {0: 'batch_size', 1: 'sequence'},
+                'output': {0: 'batch_size', 1: 'sequence'}
+            }
+            
+            # 使用较小的序列长度进行导出
+            dummy_input = torch.randint(100, (1, 32), dtype=torch.long)  # 减小序列长度
+            
+            logger.info("Starting ONNX export (this may take a while)...")
             torch.onnx.export(
                 model,
                 dummy_input,
                 str(onnx_path),
                 input_names=['input'],
                 output_names=['output'],
-                dynamic_axes={
-                    'input': {0: 'batch_size', 1: 'sequence'},
-                    'output': {0: 'batch_size', 1: 'sequence'}
-                },
-                opset_version=14,  # 更新到版本14
+                dynamic_axes=dynamic_axes,
+                opset_version=14,
                 do_constant_folding=True,
-                export_params=True,  # 确保导出模型参数
-                verbose=True  # 添加详细日志
+                export_params=True,
+                verbose=False
             )
             
-            # 验证导出的模型
+            # 使用文件路径验证模型
             logger.info("Verifying exported ONNX model...")
             import onnx
-            model = onnx.load(str(onnx_path))
-            onnx.checker.check_model(model)
+            onnx.checker.check_model(str(onnx_path))
             
-            logger.info(f"Model successfully exported to: {onnx_path}")
+            # 检查文件大小
+            file_size_gb = onnx_path.stat().st_size / (1024 * 1024 * 1024)
+            logger.info(f"Exported ONNX model size: {file_size_gb:.2f} GB")
+            
+            if file_size_gb > 2:
+                logger.warning("Model is quite large. Consider further optimization.")
+                
+                # 尝试进行优化
+                logger.info("Applying post-export optimizations...")
+                import onnxruntime as ort
+                
+                # 配置会话选项
+                sess_options = ort.SessionOptions()
+                sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                sess_options.optimized_model_filepath = str(self.output_dir / "model_optimized.onnx")
+                
+                # 创建优化会话
+                _ = ort.InferenceSession(
+                    str(onnx_path),
+                    sess_options,
+                    providers=['CPUExecutionProvider']
+                )
+                
+                # 使用优化后的模型路径
+                onnx_path = Path(sess_options.optimized_model_filepath)
+                
+                # 再次检查文件大小
+                optimized_size_gb = onnx_path.stat().st_size / (1024 * 1024 * 1024)
+                logger.info(f"Optimized model size: {optimized_size_gb:.2f} GB")
+            
             return str(onnx_path)
             
         except Exception as e:
