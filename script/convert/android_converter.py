@@ -16,6 +16,60 @@ class AndroidModelConverter:
         self.model_path = Path(model_path)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def convert_model(self):
+        """执行模型转换"""
+        try:
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            
+            logger.info("Loading model and tokenizer...")
+            model = AutoModelForCausalLM.from_pretrained(
+                str(self.model_path),
+                trust_remote_code=True
+            )
+            model.eval()  # 设置为评估模式
+            
+            tokenizer = AutoTokenizer.from_pretrained(
+                str(self.model_path),
+                trust_remote_code=True
+            )
+            
+            logger.info("Converting model to ONNX format...")
+            # 准备输入
+            dummy_input = torch.randint(100, (1, 64))
+            
+            # 导出ONNX，使用更高的opset版本
+            onnx_path = self.output_dir / "model.onnx"
+            
+            # 增加更多导出配置
+            torch.onnx.export(
+                model,
+                dummy_input,
+                str(onnx_path),
+                input_names=['input'],
+                output_names=['output'],
+                dynamic_axes={
+                    'input': {0: 'batch_size', 1: 'sequence'},
+                    'output': {0: 'batch_size', 1: 'sequence'}
+                },
+                opset_version=14,  # 更新到版本14
+                do_constant_folding=True,
+                export_params=True,  # 确保导出模型参数
+                verbose=True  # 添加详细日志
+            )
+            
+            # 验证导出的模型
+            logger.info("Verifying exported ONNX model...")
+            import onnx
+            model = onnx.load(str(onnx_path))
+            onnx.checker.check_model(model)
+            
+            logger.info(f"Model successfully exported to: {onnx_path}")
+            return str(onnx_path)
+            
+        except Exception as e:
+            logger.error(f"Error during model conversion: {e}")
+            raise
     
     def optimize_for_mobile(self, onnx_model):
         """优化ONNX模型以适应移动端"""
@@ -166,35 +220,64 @@ public class QwenTTSModel {
         
         return str(java_dir)
 
-def convert_for_android(model_path, output_dir, config):
+# 文件路径: script/convert/android_converter.py
+# 修改现有文件，添加基础模式选项
+
+def convert_for_android(model_path, output_dir, config, basic_mode=False):
     try:
         logger.info("Starting Android model conversion...")
         
+        # 检查并转换路径
+        model_path = Path(model_path).resolve()
+        output_dir = Path(output_dir).resolve()
+        
+        # 检查源目录
+        logger.info(f"Checking model directory: {model_path}")
+        if not model_path.exists():
+            raise FileNotFoundError(f"Model directory not found: {model_path}")
+        
+        # 检查目录内容
+        model_files = list(model_path.glob('*'))
+        if not model_files:
+            raise FileNotFoundError(f"No model files found in {model_path}")
+            
+        logger.info(f"Found {len(model_files)} files in model directory")
+        for file in model_files:
+            logger.info(f"Found model file: {file.name}")
+            # 验证文件可读性
+            try:
+                with open(file, 'rb') as f:
+                    # 只读取一小部分来验证可访问性
+                    f.read(1024)
+                logger.info(f"Successfully verified read access for {file.name}")
+            except PermissionError:
+                logger.error(f"Permission denied when reading {file}")
+                raise
+            except Exception as e:
+                logger.error(f"Error accessing {file}: {str(e)}")
+                raise
+
+        # 检查输出目录
+        logger.info(f"Checking output directory: {output_dir}")
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            test_file = output_dir / 'test_write.txt'
+            test_file.write_text('test')
+            test_file.unlink()  # 删除测试文件
+            logger.info("Successfully verified write access to output directory")
+        except PermissionError:
+            logger.error(f"Permission denied for output directory: {output_dir}")
+            raise
+        except Exception as e:
+            logger.error(f"Error accessing output directory: {str(e)}")
+            raise
+        
         converter = AndroidModelConverter(model_path, output_dir)
+        onnx_path = converter.convert_model()
         
-        # 1. 优化ONNX模型
-        onnx_model = onnx.load(model_path)
-        optimized_path = converter.optimize_for_mobile(onnx_model)
-        
-        # 2. 转换为TFLite（可选）
-        tflite_path = converter.convert_to_lite(optimized_path)
-        
-        # 3. 准备Android资产
-        assets_path = converter.prepare_android_assets()
-        
-        # 4. 生成Android辅助类
-        java_path = converter.generate_android_helper()
-        
-        logger.info("Model conversion completed successfully!")
-        logger.info(f"Android assets directory: {assets_path}")
-        logger.info(f"Android Java files directory: {java_path}")
-        
-        return {
-            "assets_path": assets_path,
-            "java_path": java_path,
-            "tflite_path": tflite_path
-        }
+        logger.info(f"Model converted successfully to: {onnx_path}")
+        return onnx_path
         
     except Exception as e:
-        logger.error(f"Error during conversion: {str(e)}")
+        logger.error(f"Error during conversion: {e}")
         raise

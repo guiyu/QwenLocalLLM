@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 import logging
 import shutil
-
+import argparse
 # 添加项目根目录到环境变量
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
@@ -56,16 +56,52 @@ def deploy_pipeline(config):
     except Exception as e:
         logger.error(f"Error during deployment: {str(e)}")
         return False
+    
+def setup_argument_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description='Android Deployment Script')
+    parser.add_argument(
+        '--basic',
+        action='store_true',
+        help='Use basic mode without optimizations'
+    )
+    return parser
 
 def main():
     try:
         logger.info("Starting Android deployment process...")
-        success = deploy_pipeline(ModelConfig)
+        parser = setup_argument_parser()
+        args = parser.parse_args()
+        
+        # 使用绝对路径并进行详细检查
+        model_dir = project_root / "models" / "original"
+        output_dir = project_root / "models" / "android"
+        
+        # 检查model_dir是否存在且包含必要的文件
+        logger.info(f"Checking model directory: {model_dir}")
+        if not model_dir.exists():
+            raise FileNotFoundError(f"Model directory not found: {model_dir}")
+            
+        # 列出model_dir中的文件
+        model_files = list(model_dir.glob('*'))
+        if not model_files:
+            raise FileNotFoundError(f"No files found in model directory: {model_dir}")
+        
+        logger.info(f"Found model files: {[f.name for f in model_files]}")
+        
+        # 进行转换
+        success = convert_for_android(
+            model_path=str(model_dir),
+            output_dir=str(output_dir),
+            config=ModelConfig,
+            basic_mode=args.basic
+        )
+        
         return success
+        
     except Exception as e:
         logger.error(f"Deployment failed: {str(e)}")
         return False
-
+    
 if __name__ == "__main__":
     success = main()
     sys.exit(0 if success else 1)

@@ -31,9 +31,14 @@
 ### 环境变量
 ```bash
 # 设置Android SDK路径
-export ANDROID_HOME=~/Android/Sdk
+export ANDROID_HOME=~/Android/Sdk # 请修改为你的Android SDK路径
+# or
+export ANDROID_HOME=C:\Users\Weiyi\AppData\Local\Android\Sdk 
 # 设置Android NDK路径
 export ANDROID_NDK_HOME=$ANDROID_HOME/ndk
+or 
+export ANDROID_NDK_HOME=C:\Users\Weiyi\AppData\Local\Android\Sdk\ndk
+
 ```
 
 ## 项目结构

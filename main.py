@@ -88,6 +88,13 @@ def setup_argument_parser() -> argparse.ArgumentParser:
         default='full',
         help='Specify the action to perform'
     )
+
+    # 添加基础模式选项
+    parser.add_argument(
+        '--basic',
+        action='store_true',
+        help='Use basic mode without optimizations'
+    )
     
     parser.add_argument(
         '--model-path',
@@ -107,7 +114,7 @@ def setup_argument_parser() -> argparse.ArgumentParser:
 def main() -> int:
     """主函数"""
     try:
-        # 解析命令行参数
+      # 解析命令行参数
         parser = setup_argument_parser()
         args = parser.parse_args()
         
@@ -119,16 +126,12 @@ def main() -> int:
         pipeline = QwenTTSPipeline(ModelConfig)
         
         # 根据action执行相应操作
-        if args.action == 'full':
+        if args.action == 'basic':
+            # 使用基础模式
+            logger.info("Running in basic mode (without optimizations)...")
+            success = pipeline.deployment_manager.run_basic_pipeline()
+        elif args.action == 'full':
             success = pipeline.run_pipeline()
-        elif args.action == 'train':
-            # 确保数据集准备完成
-            logger.info("Checking dataset...")
-            dataset_path = project_root / "data" / "tts_dataset" / "test_dataset.json"
-            if not dataset_path.exists():
-                logger.info("Dataset not found, preparing dataset first...")
-                if not action_map['prepare_dataset'](script_map['prepare_dataset']):
-                    raise QwenTTSError("Failed to prepare dataset")
         else:
             # 执行特定步骤
             action_map = {
@@ -145,7 +148,7 @@ def main() -> int:
                 'deploy': 'scripts/deploy_android.py'
             }
             
-            success = action_map[args.action](script_map[args.action])
+            success = action_map[args.action](script_map[args.action], basic_mode=args.basic)
         
         if success:
             logger.info("Operation completed successfully!")

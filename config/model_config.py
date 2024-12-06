@@ -1,7 +1,19 @@
 # 文件路径: config/model_config.py
 # 新建文件
+from pathlib import Path
 
 class ModelConfig:
+    # 获取项目根目录
+    PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+    
+    # 模型相关路径
+    MODEL_DIR = PROJECT_ROOT / "models"
+    ORIGINAL_MODEL_DIR = MODEL_DIR / "original"
+    ANDROID_MODEL_DIR = MODEL_DIR / "android"
+    
+    # 确保目录存在
+    ORIGINAL_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    ANDROID_MODEL_DIR.mkdir(parents=True, exist_ok=True)
     # 模型配置
     MODEL_VERSION = "Qwen/Qwen2.5-0.5B"
     CACHE_DIR = "./model_cache"

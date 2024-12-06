@@ -72,7 +72,7 @@ class DeploymentManager:
             logger.error(f"Deployment pipeline failed: {str(e)}")
             return False
     
-    def _run_script(self, script_path):
+    def _run_script(self, script_path, basic_mode=False):
             """运行Python脚本前检查依赖"""
             script_path = self.project_root / script_path
             
