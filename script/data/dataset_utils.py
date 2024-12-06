@@ -12,6 +12,7 @@ from tqdm import tqdm
 class TTSDatasetBuilder:
     def __init__(self, output_dir="./data/tts_dataset"):
         self.output_dir = Path(output_dir)
+        # 确保目录存在
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
     def generate_test_data(self, num_samples=100):

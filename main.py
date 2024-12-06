@@ -121,6 +121,14 @@ def main() -> int:
         # 根据action执行相应操作
         if args.action == 'full':
             success = pipeline.run_pipeline()
+        elif args.action == 'train':
+            # 确保数据集准备完成
+            logger.info("Checking dataset...")
+            dataset_path = project_root / "data" / "tts_dataset" / "test_dataset.json"
+            if not dataset_path.exists():
+                logger.info("Dataset not found, preparing dataset first...")
+                if not action_map['prepare_dataset'](script_map['prepare_dataset']):
+                    raise QwenTTSError("Failed to prepare dataset")
         else:
             # 执行特定步骤
             action_map = {

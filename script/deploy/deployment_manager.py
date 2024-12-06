@@ -73,17 +73,26 @@ class DeploymentManager:
             return False
     
     def _run_script(self, script_path):
-        """运行Python脚本"""
-        try:
+            """运行Python脚本前检查依赖"""
             script_path = self.project_root / script_path
-            result = subprocess.run(
-                [sys.executable, str(script_path)],
-                check=True
-            )
-            return result.returncode == 0
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Script execution failed: {str(e)}")
-            return False
+            
+            # 添加依赖检查
+            if script_path.name == "train_model.py":
+                dataset_path = self.project_root / "data" / "tts_dataset" / "test_dataset.json"
+                if not dataset_path.exists():
+                    logger.error("Dataset not found. Please run prepare_dataset.py first")
+                    logger.info("Running prepare_dataset.py...")
+                    self._run_script("scripts/prepare_dataset.py")
+            
+            try:
+                result = subprocess.run(
+                    [sys.executable, str(script_path)],
+                    check=True
+                )
+                return result.returncode == 0
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Script execution failed: {str(e)}")
+                return False
     
     def _build_android_project(self):
         """构建Android项目"""
