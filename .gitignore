@@ -163,3 +163,5 @@ cython_debug/
 /model_cache
 /qwen_small_model
 /models
+/android
+/script/android/templates/.idea
