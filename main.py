@@ -1,10 +1,12 @@
 # 文件路径: main.py
 
 import argparse
-import sys
+import sys  # 添加这行
 import logging
 from pathlib import Path
 from typing import Optional
+import traceback
+from functools import wraps
 
 # 添加项目根目录到环境变量
 project_root = Path(__file__).parent
@@ -20,8 +22,8 @@ from script.deploy.deployment_manager import DeploymentManager
 
 # 设置日志
 logger = LoggerConfig.setup_logger(
-    "QwenTTS",
-    log_file=str(project_root / "logs" / "qwen_tts.log")
+    "QwenLocalLLM",
+    log_file=str(project_root / "logs" / "qwen_local_llm.log")
 )
 
 class QwenTTSPipeline:
@@ -145,12 +147,25 @@ def main() -> int:
             return 1
             
     except QwenTTSError as e:
-        logger.error(f"Operation failed: {str(e)}")
+        logger.error(f"Operation failed with QwenTTSError: {str(e)}\n"
+                    f"Context: action={args.action if 'args' in locals() else 'unknown'}\n"
+                    f"Stack trace:\n{traceback.format_exc()}")
         return 1
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        logger.error(f"Unexpected error occurred:\n"
+                    f"Error type: {type(e).__name__}\n"
+                    f"Error message: {str(e)}\n"
+                    f"Context: action={args.action if 'args' in locals() else 'unknown'}\n"
+                    f"Stack trace:\n{traceback.format_exc()}")
         return 1
 
 if __name__ == "__main__":
-    status = main()
-    sys.exit(status)
+    try:
+        status = main()
+        sys.exit(status)
+    except Exception as e:
+        logger.error(f"Critical error in main program:\n"
+                    f"Error type: {type(e).__name__}\n"
+                    f"Error message: {str(e)}\n"
+                    f"Stack trace:\n{traceback.format_exc()}")
+        sys.exit(1)

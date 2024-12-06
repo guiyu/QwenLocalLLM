@@ -1,6 +1,7 @@
 # 文件路径: script/deploy/deployment_manager.py
 # 新建文件
 
+import sys  # 添加这行
 import logging
 import os
 from pathlib import Path

@@ -1,17 +1,19 @@
 # 文件路径: scripts/run_download.py
 # 新建文件
 
-import sys
+import argparse
+import sys  # 添加这行
 import os
 import logging
 from pathlib import Path
+from typing import Optional
 
 # 添加项目根目录到环境变量
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 from config.model_config import ModelConfig
-from scripts.download.model_downloader import download_qwen_model
+from script.download.model_downloader import download_qwen_model  # 注意这里是 script 不是 scripts
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
