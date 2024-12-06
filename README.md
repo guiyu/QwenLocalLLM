@@ -74,10 +74,10 @@ git clone https://github.com/guiyu/QwenLocalLLM.git
 cd qwen_mobile
 
 # 创建虚拟环境
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# 或
-.\venv\Scripts\activate  # Windows
+# 创建一个名为qwen_env的新环境，使用Python 3.9
+conda create -n qwen_env python=3.9
+# 激活新环境
+conda activate qwen_env
 
 # 安装依赖
 pip install -r requirements.txt
@@ -151,7 +151,7 @@ python -m pytest tests/test_model.py
 ```
 
 ### 日志
-- 日志文件位于 `logs/qwen_tts.log`
+- 日志文件位于 `logs/qwen_local_llm.log`
 - 支持不同级别的日志记录
 - 使用 `--debug` 参数启用调试日志
 
