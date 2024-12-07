@@ -100,6 +100,56 @@ class AndroidModelConverter:
                 optimized_size_gb = onnx_path.stat().st_size / (1024 * 1024 * 1024)
                 logger.info(f"Optimized model size: {optimized_size_gb:.2f} GB")
             
+            # 获取模型的实际输入名称
+            logger.info("Getting model input names...")
+            sample_input = torch.randint(100, (1, 32))
+            input_names = []
+            def hook(module, input, output):
+                if isinstance(input, tuple):
+                    for i, inp in enumerate(input):
+                        if isinstance(inp, torch.Tensor):
+                            input_names.append(f"input_{i}")
+                else:
+                    input_names.append("input_0")
+                return output
+
+            # 注册钩子获取输入名称
+            handles = []
+            for name, module in model.named_modules():
+                if isinstance(module, torch.nn.Linear):
+                    handles.append(module.register_forward_hook(hook))
+            
+            # 运行一次前向传播获取名称
+            with torch.no_grad():
+                model(sample_input)
+                
+            # 移除钩子
+            for handle in handles:
+                handle.remove()
+
+            logger.info(f"Detected input names: {input_names}")
+            
+            # 使用检测到的第一个输入名称
+            primary_input_name = input_names[0] if input_names else "onnx::Neg_1"
+            logger.info(f"Using primary input name: {primary_input_name}")
+
+            # 导出ONNX时使用正确的输入名称
+            torch.onnx.export(
+                model,
+                sample_input,
+                str(onnx_path),
+                input_names=[primary_input_name],  # 使用检测到的名称
+                output_names=['output'],
+                dynamic_axes={
+                    primary_input_name: {0: 'batch_size', 1: 'sequence'},
+                    'output': {0: 'batch_size', 1: 'sequence'}
+                },
+                opset_version=14,
+                do_constant_folding=True,
+                export_params=True,
+                verbose=True
+            )
+
             return str(onnx_path)
             
         except Exception as e:
