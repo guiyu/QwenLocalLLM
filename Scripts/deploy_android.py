@@ -21,24 +21,26 @@ def deploy_pipeline(config):
     try:
         # 1. 转换模型
         logger.info("Step 1: Converting model for Android")
-        
-        # 使用正确的量化模型目录路径
-        quantized_model_dir = config.QUANTIZED_MODEL_DIR
-        if not Path(quantized_model_dir).exists():
-            raise FileNotFoundError(f"找不到量化模型目录: {quantized_model_dir}")
-        
         conversion_paths = convert_for_android(
-            model_path=quantized_model_dir,  # 传递量化模型所在目录
+            model_path=config.QUANTIZED_MODEL_DIR,
             output_dir=config.ANDROID_MODEL_DIR,
             config=config
         )
         
-        # 2. 生成Android项目
+        # 2. 生成Android项目 - 添加这部分
         logger.info("Step 2: Generating Android project")
-        project_paths = generate_android_project(config)
+        android_paths = generate_android_project(config)
+        
+        # 3. 复制模型和相关文件到Android项目
+        logger.info("Step 3: Copying assets to Android project")
+        assets_dir = Path(android_paths["assets_dir"])
+        shutil.copytree(
+            config.ANDROID_MODEL_DIR,
+            assets_dir,
+            dirs_exist_ok=True
+        )
         
         return True
-        
     except Exception as e:
         logger.error(f"部署过程中出错: {str(e)}")
         return False
