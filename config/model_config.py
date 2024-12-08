@@ -3,13 +3,18 @@
 from pathlib import Path
 
 class ModelConfig:
-    # 获取项目根目录
+    # 获取项目根目录的绝对路径
     PROJECT_ROOT = Path(__file__).parent.parent.resolve()
     
-    # 模型相关路径
+    # 修改模型相关路径为绝对路径
     MODEL_DIR = PROJECT_ROOT / "models"
     ORIGINAL_MODEL_DIR = MODEL_DIR / "original"
+    QUANTIZED_MODEL_DIR = MODEL_DIR / "quantized"
     ANDROID_MODEL_DIR = MODEL_DIR / "android"
+    
+    # 修改Android相关配置
+    ANDROID_OUTPUT_DIR = PROJECT_ROOT / "android"
+    QUANTIZED_MODEL_PATH = QUANTIZED_MODEL_DIR / "model_quantized.onnx"
     
     # 确保目录存在
     ORIGINAL_MODEL_DIR.mkdir(parents=True, exist_ok=True)

@@ -31,6 +31,7 @@ class DeploymentManager:
         
         for dir_path in dirs:
             dir_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created directory: {dir_path}")
     
     def run_full_pipeline(self):
         """运行完整的部署流程"""
