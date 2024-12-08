@@ -1,58 +1,69 @@
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-import os
+# 文件路径: script/verify/verify_model.py
 
-def verify_model():
-    model_path = "./qwen_small_model"
-    print(f"Verifying model in {model_path}")
-    
-    # 检查模型文件是否存在
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model directory {model_path} not found!")
-    
-    # 加载模型和分词器
+import logging
+import sys
+from pathlib import Path
+from onnx_verify import ONNXModelVerifier, verify_onnx_model
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+def main():
     try:
-        print("Loading tokenizer...")
-        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        # 获取项目根目录
+        project_root = Path(__file__).parent.parent.parent
         
-        print("Loading model...")
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            trust_remote_code=True,
-            torch_dtype=torch.float16
-        )
+        # 设置模型路径
+        model_dir = project_root / "models" / "android"
+        model_path = model_dir / "model.onnx"
         
-        # 进行简单的测试推理
-        print("\nPerforming test inference...")
-        test_text = "你好，帮我写一首诗。"
-        inputs = tokenizer(test_text, return_tensors="pt")
+        # 检查model.onnx是否存在
+        if not model_path.exists():
+            logger.error(f"模型文件不存在: {model_path}")
+            return False
+            
+        logger.info(f"开始验证模型: {model_path}")
         
-        with torch.no_grad():
-            outputs = model.generate(
-                inputs["input_ids"],
-                max_new_tokens=50,
-                do_sample=True,
-                temperature=0.7,
-                top_p=0.9,
-            )
+        # 创建验证器实例
+        verifier = ONNXModelVerifier(str(model_path))
         
-        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        print("\nTest response:", response)
+        # 修复模型
+        logger.info("步骤1: 修复模型")
+        fixed_model_path = verifier.fix_slice_inputs(str(model_path))
+        if not fixed_model_path:
+            logger.error("模型修复失败")
+            return False
+            
+        logger.info(f"修复后的模型保存在: {fixed_model_path}")
         
-        # 打印模型信息
-        model_size = sum(p.numel() for p in model.parameters()) * 2 / (1024 * 1024) # MB
-        print(f"\nModel size: {model_size:.2f} MB")
-        print(f"Number of parameters: {model.num_parameters():,}")
+        # 创建新的验证器实例使用修复后的模型
+        verifier = ONNXModelVerifier(fixed_model_path)
         
-        return True, model, tokenizer
+        # 加载模型会话
+        logger.info("步骤2: 加载模型会话")
+        if not verifier.load_session():
+            logger.error("加载模型会话失败")
+            return False
+            
+        # 验证基本推理
+        logger.info("步骤3: 验证基本推理")
+        if not verifier.verify_basic_inference():
+            logger.error("基本推理验证失败")
+            return False
+            
+        logger.info("模型验证成功完成!")
+        return True
         
     except Exception as e:
-        print(f"Error during model verification: {str(e)}")
-        return False, None, None
+        logger.error(f"验证过程中出错: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return False
 
 if __name__ == "__main__":
-    success, model, tokenizer = verify_model()
-    if success:
-        print("\nModel verification successful!")
-    else:
-        print("\nModel verification failed!")
+    success = main()
+    sys.exit(0 if success else 1)

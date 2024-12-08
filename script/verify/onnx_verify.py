@@ -6,6 +6,7 @@ import time
 from transformers import AutoTokenizer
 import onnx
 from onnx import numpy_helper
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -83,29 +84,31 @@ class ONNXModelVerifier:
     def load_session(self):
         """加载ONNX会话"""
         try:
-            logger.info("Creating ONNX Runtime session...")
+            logger.info("创建ONNX Runtime会话...")
+            
+            # 分析模型结构
+            self.analyze_model_inputs()
+            
             session_options = ort.SessionOptions()
             session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
             
-            # 分析和修改模型
-            model = self.analyze_onnx_model()
-            model_path = self.modify_model_if_needed(model)
-            
             self.session = ort.InferenceSession(
-                model_path,
+                str(self.model_path),
                 session_options,
                 providers=['CPUExecutionProvider']
             )
             
-            # 获取所有输入信息
+            # 获取输入详情
             self.input_details = self.session.get_inputs()
-            logger.info("Model inputs:")
+            logger.info("模型输入信息:")
             for input_detail in self.input_details:
-                logger.info(f"  Name: {input_detail.name}, Shape: {input_detail.shape}")
+                logger.info(f"  名称: {input_detail.name}, 形状: {input_detail.shape}")
             
             return True
+            
         except Exception as e:
-            logger.error(f"Failed to load ONNX session: {e}")
+            logger.error(f"加载ONNX会话失败: {e}")
+            logger.error(traceback.format_exc())
             return False
 
     def preprocess_inputs(self, inputs):
@@ -126,126 +129,169 @@ class ONNXModelVerifier:
             processed[name] = value
         return processed
 
+    def analyze_model_inputs(self):
+        """分析模型的输入节点"""
+        try:
+            logger.info("分析模型输入结构...")
+            model = onnx.load(str(self.model_path))
+            
+            # 检查所有输入
+            input_names = []
+            for input in model.graph.input:
+                logger.info(f"发现输入节点: {input.name}")
+                input_names.append(input.name)
+                
+                # 分析输入的形状信息
+                shape_info = []
+                for dim in input.type.tensor_type.shape.dim:
+                    if dim.dim_param:
+                        shape_info.append(dim.dim_param)
+                    else:
+                        shape_info.append(dim.dim_value)
+                logger.info(f"  形状信息: {shape_info}")
+            
+            # 分析Slice节点的输入
+            for node in model.graph.node:
+                if node.op_type == 'Slice':
+                    logger.info(f"\nSlice节点分析:")
+                    logger.info(f"节点名称: {node.name}")
+                    logger.info(f"输入列表: {node.input}")
+                    
+                    # 检查initializer
+                    for init in model.graph.initializer:
+                        if init.name in node.input:
+                            logger.info(f"找到initializer: {init.name}")
+                            logger.info(f"  形状: {[d for d in init.dims]}")
+            
+            return input_names
+        except Exception as e:
+            logger.error(f"分析模型输入时出错: {e}")
+            return []
+
     def verify_basic_inference(self):
         """验证基本推理功能"""
         try:
-            logger.info("Testing basic inference...")
-            model = onnx.load(str(self.model_path))
+            logger.info("开始基本推理测试...")
             
-            # 分析Constant节点
-            logger.info("Analyzing Constants...")
-            constants = {}
-            for node in model.graph.node:
-                if node.op_type == 'Constant':
-                    logger.info(f"Found Constant node: {node.name}")
-                    for attr in node.attribute:
-                        if attr.name == 'value':
-                            tensor = numpy_helper.to_array(attr.t)
-                            logger.info(f"  Shape: {tensor.shape}")
-                            logger.info(f"  Value: {tensor}")
-                            constants[node.output[0]] = tensor
-
-            # 分析有问题的Slice节点
-            logger.info("\nAnalyzing problematic Slice node...")
-            for node in model.graph.node:
-                if node.op_type == 'Slice' and node.name == '/Slice':
-                    logger.info(f"Found target Slice node inputs:")
-                    for i, input_name in enumerate(node.input):
-                        logger.info(f"Input {i}: {input_name}")
-                        if input_name in constants:
-                            logger.info(f"  Constant value: {constants[input_name]}")
-
-            # 准备输入
+            # 准备输入数据
             inputs = {}
+            
+            # 检查并记录所有需要的输入
+            required_inputs = set(input.name for input in self.input_details)
+            logger.info(f"模型需要的输入: {required_inputs}")
+            
             for input_detail in self.input_details:
-                logger.info(f"\nPreparing input for: {input_detail.name}")
+                logger.info(f"处理输入: {input_detail.name}")
                 
                 if input_detail.name == 'input_0':
+                    # 为主要输入创建测试张量
                     dummy_input = np.random.randint(0, 100, (1, 32), dtype=np.int64)
                     inputs[input_detail.name] = dummy_input
-                    logger.info(f"Input shape: {dummy_input.shape}")
+                    logger.info(f"创建了input_0张量: shape={dummy_input.shape}, dtype={dummy_input.dtype}")
+                    
                 elif input_detail.name == 'onnx::Neg_1':
-                    # 创建完整的Slice参数
-                    starts = np.zeros(1, dtype=np.int64)  # starts
-                    ends = np.array([1], dtype=np.int64)  # ends
-                    axes = np.array([0], dtype=np.int64)  # axes
-                    steps = np.array([1], dtype=np.int64)  # steps
+                    # 严格确保starts是一维数组
+                    starts = np.array([0], dtype=np.int64)
+                    starts = np.ascontiguousarray(starts)  # 确保数组连续存储
+                    
+                    # 验证starts数组的属性
+                    logger.info(f"starts数组信息:")
+                    logger.info(f"  shape: {starts.shape}")
+                    logger.info(f"  dtype: {starts.dtype}")
+                    logger.info(f"  ndim: {starts.ndim}")
+                    logger.info(f"  strides: {starts.strides}")
+                    logger.info(f"  flags: {starts.flags}")
+                    logger.info(f"  数据: {starts}")
                     
                     inputs[input_detail.name] = starts
-                    inputs['slice_ends'] = ends
-                    inputs['slice_axes'] = axes
-                    inputs['slice_steps'] = steps
-                    
-                    logger.info(f"Slice parameters:")
-                    logger.info(f"  starts: shape={starts.shape}, value={starts}")
-                    logger.info(f"  ends: shape={ends.shape}, value={ends}")
-                    logger.info(f"  axes: shape={axes.shape}, value={axes}")
-                    logger.info(f"  steps: shape={steps.shape}, value={steps}")
 
+            # 打印最终的输入配置
+            logger.info("\n最终输入配置:")
+            for name, value in inputs.items():
+                logger.info(f"  {name}:")
+                logger.info(f"    shape: {value.shape}")
+                logger.info(f"    dtype: {value.dtype}")
+                logger.info(f"    ndim: {value.ndim}")
+                logger.info(f"    值: {value}")
+            
             # 运行推理
-            logger.info("\nAttempting inference...")
-            outputs = self.session.run(None, inputs)
-            
-            logger.info("Inference successful!")
-            for i, output in enumerate(outputs):
-                logger.info(f"Output {i} shape: {output.shape}")
-            
-            return True
-            
+            logger.info("\n执行推理...")
+            try:
+                outputs = self.session.run(None, inputs)
+                logger.info("推理成功完成!")
+                
+                # 打印输出信息
+                for i, output in enumerate(outputs):
+                    logger.info(f"输出 {i} 形状: {output.shape}")
+                
+                return True
+                
+            except Exception as e:
+                logger.error(f"推理过程中出错: {e}")
+                logger.error(traceback.format_exc())
+                
+                # 检查错误是否与输入形状相关
+                if "Starts must be a 1-D array" in str(e):
+                    logger.error("\n输入形状错误分析:")
+                    for name, value in inputs.items():
+                        logger.error(f"  {name} 的形状信息:")
+                        logger.error(f"    shape: {value.shape}")
+                        logger.error(f"    ndim: {value.ndim}")
+                        logger.error(f"    dtype: {value.dtype}")
+                        logger.error(f"    strides: {value.strides}")
+                
+                return False
+                
         except Exception as e:
-            logger.error(f"Basic inference failed: {e}")
+            logger.error(f"基本推理测试失败: {e}")
+            logger.error(traceback.format_exc())
             return False
-        
+
     def fix_slice_inputs(self, model_path):
         """修复Slice节点的输入"""
         try:
             # 加载原始模型
             model = onnx.load(model_path)
+            logger.info("正在修复Slice节点输入...")
             
-            logger.info("Fixing Slice node inputs...")
-            
-            # 找到有问题的Slice节点
-            slice_node = None
+            # 分析Slice节点的输入
             for node in model.graph.node:
-                if node.op_type == 'Slice' and node.name == '/Slice':
-                    slice_node = node
-                    break
+                if node.op_type == 'Slice':
+                    logger.info(f"找到Slice节点: {node.name}")
+                    logger.info(f"当前输入: {node.input}")
+                    
+                    # 保持第一个输入不变，修改starts输入
+                    if len(node.input) > 1:
+                        # 创建新的starts initializer
+                        starts_name = node.input[1]
+                        starts_value = np.array([0], dtype=np.int64)
+                        
+                        # 检查并移除旧的initializer
+                        model.graph.initializer[:] = [x for x in model.graph.initializer 
+                                                    if x.name != starts_name]
+                        
+                        # 添加新的initializer
+                        new_starts = onnx.helper.make_tensor(
+                            name=starts_name,
+                            data_type=onnx.TensorProto.INT64,
+                            dims=[1],
+                            vals=starts_value.tolist()
+                        )
+                        model.graph.initializer.append(new_starts)
+                        logger.info(f"更新了starts输入: {starts_name}")
+                        logger.info(f"  形状: {[1]}")
+                        logger.info(f"  值: {starts_value}")
             
-            if slice_node:
-                # 确保所有输入是正确的一维数组
-                input_tensors = {
-                    'starts': np.array([0], dtype=np.int64),
-                    'ends': np.array([1], dtype=np.int64),
-                    'axes': np.array([0], dtype=np.int64),
-                    'steps': np.array([1], dtype=np.int64)
-                }
-                
-                # 修改或添加对应的initializers
-                for i, (name, tensor) in enumerate(input_tensors.items()):
-                    if i < len(slice_node.input):
-                        init_name = slice_node.input[i]
-                    else:
-                        init_name = f"fixed_{name}"
-                        slice_node.input.append(init_name)
-                    
-                    # 创建新的initializer
-                    initializer = numpy_helper.from_array(tensor, name=init_name)
-                    
-                    # 删除旧的initializer（如果存在）
-                    model.graph.initializer[:] = [x for x in model.graph.initializer if x.name != init_name]
-                    
-                    # 添加新的initializer
-                    model.graph.initializer.append(initializer)
-                
-                # 保存修改后的模型
-                fixed_model_path = model_path.replace('.onnx', '_fixed.onnx')
-                onnx.save(model, fixed_model_path)
-                logger.info(f"Saved fixed model to {fixed_model_path}")
-                
-                return fixed_model_path
+            # 保存修复后的模型
+            fixed_model_path = model_path.replace('.onnx', '_fixed.onnx')
+            onnx.save(model, fixed_model_path)
+            logger.info(f"修复后的模型已保存到: {fixed_model_path}")
+            
+            return fixed_model_path
         
         except Exception as e:
-            logger.error(f"Failed to fix Slice inputs: {e}")
+            logger.error(f"修复Slice输入时出错: {e}")
+            logger.error(traceback.format_exc())
             return model_path
 
     def verify_with_real_input(self):
