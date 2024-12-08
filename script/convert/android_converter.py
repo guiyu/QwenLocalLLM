@@ -156,7 +156,7 @@ class AndroidModelConverter:
                         
             # 运行模型检查器
             logger.info("运行ONNX模型检查器...")
-            # onnx.checker.check_model(fixed_model)
+            onnx.checker.check_model(str(fixed_path))
 
             # 优化模型
             logger.info("优化模型...")
@@ -181,7 +181,6 @@ class AndroidModelConverter:
             # 量化模型
             logger.info("量化模型...")
             quantized_path = self.output_dir / "model_quantized.onnx"
-            logger.info("量化模型...")
             from onnx import TensorProto
             extra_options = {
                 'DefaultTensorType': TensorProto.FLOAT  # 设置默认张量类型为FLOAT
