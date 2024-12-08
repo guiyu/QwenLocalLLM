@@ -1,14 +1,14 @@
 # 文件路径: script/convert/android_converter.py
-# 新建文件
 
-import torch
-import onnx
-from pathlib import Path
 import logging
-import shutil
-import json
+import torch
+import numpy as np
+from pathlib import Path
+import traceback
+from transformers import AutoModelForCausalLM
 from onnxruntime.quantization import quantize_dynamic, QuantType
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import onnx
+from onnx import helper, TensorProto
 
 logger = logging.getLogger(__name__)
 
@@ -18,301 +18,213 @@ class AndroidModelConverter:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
+    def create_onnx_model_proto(self, graph_def, opset_imports):
+        """创建ONNX模型原型"""
+        model_def = helper.make_model(
+            graph_def,
+            producer_name='pytorch',
+            opset_imports=opset_imports
+        )
+        model_def.ir_version = 7  # 使用稳定版本的IR
+        return model_def
+
     def convert_model(self):
         """执行模型转换"""
         try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
-            import torch
+            logger.info("正在加载模型...")
             
-            logger.info("Loading model and tokenizer...")
-            # 使用半精度加载模型以减少内存使用
-            model = AutoModelForCausalLM.from_pretrained(
-                str(self.model_path),
-                trust_remote_code=True,
-                torch_dtype=torch.float16,  # 使用 FP16
-                low_cpu_mem_usage=True
-            )
-            model.eval()
-            
-            tokenizer = AutoTokenizer.from_pretrained(
-                str(self.model_path),
-                trust_remote_code=True
-            )
-            
-            logger.info("Converting model to ONNX format...")
-            onnx_path = self.output_dir / "model.onnx"
-            
-            # 配置ONNX导出选项
-            dynamic_axes = {
-                'input': {0: 'batch_size', 1: 'sequence'},
-                'output': {0: 'batch_size', 1: 'sequence'}
-            }
-            
-            # 使用较小的序列长度进行导出
-            dummy_input = torch.randint(100, (1, 32), dtype=torch.long)  # 减小序列长度
-            
-            logger.info("Starting ONNX export (this may take a while)...")
-            torch.onnx.export(
-                model,
-                dummy_input,
-                str(onnx_path),
-                input_names=['input'],
-                output_names=['output'],
-                dynamic_axes=dynamic_axes,
-                opset_version=14,
-                do_constant_folding=True,
-                export_params=True,
-                verbose=False
-            )
-            
-            # 使用文件路径验证模型
-            logger.info("Verifying exported ONNX model...")
-            import onnx
-            onnx.checker.check_model(str(onnx_path))
-            
-            # 检查文件大小
-            file_size_gb = onnx_path.stat().st_size / (1024 * 1024 * 1024)
-            logger.info(f"Exported ONNX model size: {file_size_gb:.2f} GB")
-            
-            if file_size_gb > 2:
-                logger.warning("Model is quite large. Consider further optimization.")
+            # 修改这部分：改为直接加载和分析ONNX模型
+            try:
+                initial_path = self.output_dir / "model_initial.onnx"
                 
-                # 尝试进行优化
-                logger.info("Applying post-export optimizations...")
+                # 加载原始ONNX模型
+                original_model = onnx.load(str(self.model_path))
+                logger.info(f"成功加载原始ONNX模型: {self.model_path}")
+                
+                # 设置IR版本
+                original_model.ir_version = 7
+                logger.info(f"设置IR版本为: {original_model.ir_version}")
+                
+                # 保存初始模型
+                onnx.save(original_model, str(initial_path))
+                logger.info(f"保存初始模型到: {initial_path}")
+                
+                # 修复ONNX模型
+                logger.info("修复ONNX模型...")
+                try:
+                    # 加载和验证初始模型
+                    initial_model = onnx.load(str(initial_path))
+                    logger.info(f"初始模型IR版本: {initial_model.ir_version}")
+                    
+                    # 设置IR版本
+                    initial_model.ir_version = 7
+                    logger.info(f"设置IR版本后的值: {initial_model.ir_version}")
+                    
+                    # 保存模型
+                    fixed_path = self.output_dir / "model.onnx"
+                    logger.info(f"保存模型到: {fixed_path}")
+                    
+                    try:
+                        # 保存模型
+                        logger.info("尝试使用onnx.save保存...")
+                        onnx.save(initial_model, str(fixed_path), 
+                                save_as_external_data=True, 
+                                all_tensors_to_one_file=True, 
+                                location="weights.pb")
+                        logger.info("模型保存成功")
+                        
+                        # 验证保存的文件
+                        logger.info("验证保存的文件...")
+                        if fixed_path.exists():
+                            file_size = fixed_path.stat().st_size
+                            logger.info(f"主文件大小: {file_size} 字节")
+                            weights_path = fixed_path.parent / "weights.pb"
+                            if weights_path.exists():
+                                logger.info(f"权重文件大小: {weights_path.stat().st_size} 字节")
+                    
+                    except Exception as save_error:
+                        logger.error(f"保存模型时出错: {save_error}")
+                        logger.error(traceback.format_exc())
+                        raise
+                    
+                    # 使用文件路径进行验证
+                    logger.info("验证最终模型...")
+                    onnx.checker.check_model(str(fixed_path))
+                    logger.info("模型验证通过")
+                    
+                except Exception as e:
+                    logger.error(f"ONNX模型处理失败: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    if 'initial_model' in locals():
+                        logger.error(f"失败时的IR版本: {getattr(initial_model, 'ir_version', 'Not found')}")
+                    raise
+
+                # 优化模型
+                logger.info("优化模型...")
                 import onnxruntime as ort
                 
-                # 配置会话选项
+                # 配置优化选项
                 sess_options = ort.SessionOptions()
                 sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-                sess_options.optimized_model_filepath = str(self.output_dir / "model_optimized.onnx")
+                sess_options.intra_op_num_threads = 1
+                
+                # 设置优化后的模型路径
+                optimized_path = self.output_dir / "model_optimized.onnx"
+                sess_options.optimized_model_filepath = str(optimized_path)
                 
                 # 创建优化会话
                 _ = ort.InferenceSession(
-                    str(onnx_path),
+                    str(fixed_path),
                     sess_options,
                     providers=['CPUExecutionProvider']
                 )
+
+                # 量化模型
+                logger.info("量化模型...")
+                quantized_path = self.output_dir / "model_quantized.onnx"
+                from onnx import TensorProto
+                extra_options = {
+                    'DefaultTensorType': TensorProto.FLOAT
+                }
+
+                quantize_dynamic(
+                    model_input=str(optimized_path),
+                    model_output=str(quantized_path),
+                    weight_type=QuantType.QInt8,
+                    per_channel=False,
+                    extra_options=extra_options
+                )
+
+                # 验证最终模型
+                logger.info("验证最终模型...")
+                success = self.verify_converted_model(str(quantized_path))
+                if not success:
+                    raise Exception("最终模型验证失败")
+
+                logger.info(f"模型转换完成，文件保存在: {self.output_dir}")
+                return str(quantized_path)
+
+            except Exception as e:
+                logger.error(f"模型转换失败: {str(e)}")
+                logger.error(traceback.format_exc())
+                raise
                 
-                # 使用优化后的模型路径
-                onnx_path = Path(sess_options.optimized_model_filepath)
-                
-                # 再次检查文件大小
-                optimized_size_gb = onnx_path.stat().st_size / (1024 * 1024 * 1024)
-                logger.info(f"Optimized model size: {optimized_size_gb:.2f} GB")
+        except Exception as e:
+            logger.error(f"模型转换失败: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise
+
+    def verify_converted_model(self, model_path):
+        """验证转换后的模型"""
+        try:
+            logger.info(f"验证模型: {model_path}")
             
-            return str(onnx_path)
+            # 检查模型格式
+            logger.info("检查模型格式...")
+            onnx_model = onnx.load(model_path)
+            logger.info(f"IR版本: {onnx_model.ir_version}")
+            logger.info(f"Opset版本: {[opset.version for opset in onnx_model.opset_import]}")
+            
+            # 创建推理会话
+            import onnxruntime as ort
+            session_options = ort.SessionOptions()
+            session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+            
+            logger.info("创建推理会话...")
+            session = ort.InferenceSession(
+                model_path,
+                session_options,
+                providers=['CPUExecutionProvider']
+            )
+
+            # 输入信息
+            input_details = session.get_inputs()
+            logger.info("模型输入信息：")
+            for input in input_details:
+                logger.info(f"  名称: {input.name}")
+                logger.info(f"  形状: {input.shape}")
+                logger.info(f"  类型: {input.type}")
+
+            # 测试推理
+            input_name = session.get_inputs()[0].name
+            dummy_input = np.random.randint(0, 100, (1, 32), dtype=np.int64)
+            
+            logger.info("执行推理...")
+            outputs = session.run(None, {input_name: dummy_input})
+            
+            logger.info("推理成功!")
+            for i, output in enumerate(outputs):
+                logger.info(f"输出 {i} 形状: {output.shape}")
+            
+            return True
             
         except Exception as e:
-            logger.error(f"Error during model conversion: {e}")
-            raise
-    
-    def optimize_for_mobile(self, onnx_model):
-        """优化ONNX模型以适应移动端"""
-        logger.info("Optimizing ONNX model for mobile")
-        
-        # 图优化选项
-        from onnxruntime import GraphOptimizationLevel, SessionOptions
-        options = SessionOptions()
-        options.graph_optimization_level = GraphOptimizationLevel.ORT_ENABLE_ALL
-        options.optimize_for_mobile = True
-        
-        # 执行图优化
-        import onnxruntime as ort
-        session = ort.InferenceSession(
-            str(self.model_path), 
-            options,
-            providers=['CPUExecutionProvider']
-        )
-        
-        # 保存优化后的模型
-        optimized_path = self.output_dir / "model_optimized.onnx"
-        onnx.save(onnx_model, str(optimized_path))
-        
-        return str(optimized_path)
-    
-    def convert_to_lite(self, optimized_path):
-        """转换为TFLite格式（可选）"""
-        try:
-            import tensorflow as tf
-            from onnx_tf.backend import prepare
-            
-            # ONNX to TensorFlow
-            logger.info("Converting ONNX to TensorFlow")
-            tf_model = prepare(onnx.load(optimized_path))
-            
-            # TensorFlow to TFLite
-            logger.info("Converting TensorFlow to TFLite")
-            converter = tf.lite.TFLiteConverter.from_keras_model(tf_model.keras_model)
-            converter.optimizations = [tf.lite.Optimize.DEFAULT]
-            converter.target_spec.supported_types = [tf.float16]
-            tflite_model = converter.convert()
-            
-            # 保存TFLite模型
-            tflite_path = self.output_dir / "model.tflite"
-            tflite_path.write_bytes(tflite_model)
-            
-            return str(tflite_path)
-        except ImportError:
-            logger.warning("TensorFlow not installed, skipping TFLite conversion")
-            return None
-    
-    def prepare_android_assets(self):
-        """准备Android资产文件"""
-        logger.info("Preparing Android assets")
-        
-        # 创建assets目录
-        assets_dir = self.output_dir / "assets"
-        assets_dir.mkdir(exist_ok=True)
-        
-        # 复制模型文件
-        shutil.copy2(self.model_path, assets_dir / "model_quantized.onnx")
-        
-        # 创建模型配置文件
-        config = {
-            "model_version": "1.0",
-            "input_shape": [1, 64],
-            "input_name": "input",
-            "output_name": "output",
-            "quantization_bits": 8
-        }
-        
-        with open(assets_dir / "model_config.json", "w") as f:
-            json.dump(config, f, indent=2)
-        
-        return str(assets_dir)
-    
-    def generate_android_helper(self):
-        """生成Android辅助类"""
-        logger.info("Generating Android helper classes")
-        
-        java_code = """
-package com.example.qwentts;
-
-import android.content.Context;
-import android.util.Log;
-import ai.onnxruntime.*;
-
-public class QwenTTSModel {
-    private static final String TAG = "QwenTTSModel";
-    private OrtSession session;
-    private OrtEnvironment env;
-    
-    public QwenTTSModel(Context context) {
-        try {
-            // 初始化ONNX Runtime
-            env = OrtEnvironment.getEnvironment();
-            OrtSession.SessionOptions sessionOptions = new OrtSession.SessionOptions();
-            sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
-            
-            // 从assets加载模型
-            byte[] modelBytes = Utils.loadModelFromAssets(context, "model_quantized.onnx");
-            session = env.createSession(modelBytes, sessionOptions);
-        } catch (Exception e) {
-            Log.e(TAG, "Error initializing model", e);
-        }
-    }
-    
-    public float[] generateSpeech(String text) {
-        try {
-            // 处理输入文本
-            long[] inputShape = {1, text.length()};
-            OnnxTensor inputTensor = OnnxTensor.createTensor(
-                env,
-                Utils.textToInputArray(text),
-                inputShape
-            );
-            
-            // 运行推理
-            OrtSession.Result result = session.run(
-                Collections.singletonMap("input", inputTensor)
-            );
-            
-            // 处理输出
-            return Utils.processOutput(result);
-        } catch (Exception e) {
-            Log.e(TAG, "Error generating speech", e);
-            return null;
-        }
-    }
-    
-    public void close() {
-        try {
-            if (session != null) session.close();
-            if (env != null) env.close();
-        } catch (Exception e) {
-            Log.e(TAG, "Error closing model", e);
-        }
-    }
-}
-"""
-        
-        # 保存Java代码
-        java_dir = self.output_dir / "java" / "com" / "example" / "qwentts"
-        java_dir.mkdir(parents=True, exist_ok=True)
-        
-        with open(java_dir / "QwenTTSModel.java", "w") as f:
-            f.write(java_code)
-        
-        return str(java_dir)
-
-# 文件路径: script/convert/android_converter.py
-# 修改现有文件，添加基础模式选项
+            logger.error(f"模型验证失败: {str(e)}")
+            logger.error(traceback.format_exc())
+            return False
 
 def convert_for_android(model_path, output_dir, config, basic_mode=False):
+    """主转换函数"""
     try:
-        logger.info("Starting Android model conversion...")
+        logger.info("开始Android模型转换...")
         
-        # 检查并转换路径
-        model_path = Path(model_path).resolve()
-        output_dir = Path(output_dir).resolve()
-        
-        # 检查源目录
-        logger.info(f"Checking model directory: {model_path}")
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model directory not found: {model_path}")
-        
-        # 检查目录内容
-        model_files = list(model_path.glob('*'))
-        if not model_files:
-            raise FileNotFoundError(f"No model files found in {model_path}")
+        # 确保输入路径是完整的模型文件路径
+        model_path = Path(model_path) / "model_quantized.onnx"
+        if not model_path.is_file():
+            raise FileNotFoundError(f"找不到模型文件: {model_path}")
             
-        logger.info(f"Found {len(model_files)} files in model directory")
-        for file in model_files:
-            logger.info(f"Found model file: {file.name}")
-            # 验证文件可读性
-            try:
-                with open(file, 'rb') as f:
-                    # 只读取一小部分来验证可访问性
-                    f.read(1024)
-                logger.info(f"Successfully verified read access for {file.name}")
-            except PermissionError:
-                logger.error(f"Permission denied when reading {file}")
-                raise
-            except Exception as e:
-                logger.error(f"Error accessing {file}: {str(e)}")
-                raise
-
-        # 检查输出目录
-        logger.info(f"Checking output directory: {output_dir}")
-        try:
-            output_dir.mkdir(parents=True, exist_ok=True)
-            test_file = output_dir / 'test_write.txt'
-            test_file.write_text('test')
-            test_file.unlink()  # 删除测试文件
-            logger.info("Successfully verified write access to output directory")
-        except PermissionError:
-            logger.error(f"Permission denied for output directory: {output_dir}")
-            raise
-        except Exception as e:
-            logger.error(f"Error accessing output directory: {str(e)}")
-            raise
+        logger.info(f"使用模型文件: {model_path}")
         
-        converter = AndroidModelConverter(model_path, output_dir)
-        onnx_path = converter.convert_model()
+        # 确保输出目录存在
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
         
-        logger.info(f"Model converted successfully to: {onnx_path}")
-        return onnx_path
+        converter = AndroidModelConverter(str(model_path), str(output_dir))
+        converted_path = converter.convert_model()
+        
+        logger.info(f"转换完成，模型保存在: {converted_path}")
+        return converted_path
         
     except Exception as e:
-        logger.error(f"Error during conversion: {e}")
+        logger.error(f"转换过程中出错: {str(e)}")
         raise
