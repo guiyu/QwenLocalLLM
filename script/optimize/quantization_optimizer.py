@@ -144,37 +144,53 @@ class ModelQuantizer:
             logger.error(f"Model verification failed: {str(e)}")
             raise
 
+# def quantize_model(model_path, output_dir, config):
+#     """主量化函数"""
+#     try:
+#         logger.info("Starting model quantization process...")
+        
+#         quantizer = ModelQuantizer(model_path, output_dir)
+        
+#         # 执行量化流程
+#         # 1. 加载模型
+#         quantizer.load_model()
+        
+#         # 2. 导出为ONNX
+#         onnx_path = quantizer.export_to_onnx()
+#         if not onnx_path:
+#             raise ValueError("ONNX export failed")
+            
+#         # 3. 执行动态量化
+#         quantized_path = quantizer.dynamic_quantization(onnx_path)
+#         if not quantized_path:
+#             raise ValueError("Quantization failed")
+            
+#         # 4. 验证量化后的模型
+#         try:
+#             quantizer.verify_quantized_model(quantized_path)
+#             logger.info("Model quantization completed successfully!")
+#         except Exception as e:
+#             logger.error(f"Model verification failed but model was quantized: {e}")
+        
+#         return quantized_path
+            
+#     except Exception as e:
+#         logger.error(f"Error during quantization: {str(e)}")
+#         logger.error(traceback.format_exc())
+#         raise
 def quantize_model(model_path, output_dir, config):
-    """主量化函数"""
-    try:
-        logger.info("Starting model quantization process...")
-        
-        quantizer = ModelQuantizer(model_path, output_dir)
-        
-        # 执行量化流程
-        # 1. 加载模型
-        quantizer.load_model()
-        
-        # 2. 导出为ONNX
-        onnx_path = quantizer.export_to_onnx()
-        if not onnx_path:
-            raise ValueError("ONNX export failed")
-            
-        # 3. 执行动态量化
-        quantized_path = quantizer.dynamic_quantization(onnx_path)
-        if not quantized_path:
-            raise ValueError("Quantization failed")
-            
-        # 4. 验证量化后的模型
-        try:
-            quantizer.verify_quantized_model(quantized_path)
-            logger.info("Model quantization completed successfully!")
-        except Exception as e:
-            logger.error(f"Model verification failed but model was quantized: {e}")
-        
-        return quantized_path
-            
-    except Exception as e:
-        logger.error(f"Error during quantization: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise
+    from onnxruntime.quantization import quantize_dynamic, QuantType
+    from pathlib import Path
+
+    # 定义量化后的模型路径
+    quantized_model_path = Path(output_dir) / "quantized_android_model.onnx"
+
+    # 动态量化模型
+    quantize_dynamic(
+        model_input=model_path,
+        model_output=str(quantized_model_path),
+        weight_type=QuantType.QUInt8  # 使用8位量化
+    )
+
+    print(f"Quantized model saved to: {quantized_model_path}")
+    return quantized_model_path

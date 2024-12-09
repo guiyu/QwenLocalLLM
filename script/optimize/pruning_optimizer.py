@@ -85,23 +85,80 @@ class ModelPruner:
         return str(output_path)
 
 def prune_model(model_path, output_dir, config):
-    try:
-        logger.info("Starting model pruning process...")
-        
-        pruner = ModelPruner(model_path, output_dir)
-        pruned_model_path = (
-            pruner.load_model()
-            .gradual_pruning(
-                initial_amount=config.INITIAL_PRUNING_AMOUNT,
-                final_amount=config.FINAL_PRUNING_AMOUNT,
-                steps=config.PRUNING_STEPS
-            )
-            .save_pruned_model()
-        )
-        
-        logger.info("Model pruning completed successfully!")
-        return pruned_model_path
-        
-    except Exception as e:
-        logger.error(f"Error during pruning: {str(e)}")
-        raise
+    import onnx
+    from onnx import helper
+    from pathlib import Path
+
+    # 加载 ONNX 模型
+    model = onnx.load(model_path)
+    print(f"Loaded ONNX model from: {model_path}")
+
+    # 定义需要保留的节点条件
+    retained_node_names = set()
+    retained_tensors = set()
+
+    # 选择保留的节点（例如 attention 和 layer_norm）
+    for node in model.graph.node:
+        if "attention" in node.name or "layer_norm" in node.name:
+            retained_node_names.add(node.name)
+
+    # 递归追踪依赖
+    def collect_dependencies(tensor_name):
+        for node in model.graph.node:
+            if tensor_name in node.output:
+                retained_node_names.add(node.name)
+                for input_name in node.input:
+                    retained_tensors.add(input_name)
+                    collect_dependencies(input_name)
+
+    # 为每个节点收集依赖
+    for node_name in list(retained_node_names):
+        for node in model.graph.node:
+            if node.name == node_name:
+                for input_name in node.input:
+                    retained_tensors.add(input_name)
+                    collect_dependencies(input_name)
+
+    # 保留节点和初始化张量
+    pruned_nodes = [node for node in model.graph.node if node.name in retained_node_names]
+    pruned_initializers = [
+        initializer for initializer in model.graph.initializer if initializer.name in retained_tensors
+    ]
+    pruned_value_infos = [
+        value_info for value_info in model.graph.value_info if value_info.name in retained_tensors
+    ]
+
+    # 校正拓扑排序
+    sorted_nodes = []
+    visited = set()
+
+    def topological_sort(node_name):
+        if node_name in visited:
+            return
+        visited.add(node_name)
+        for node in pruned_nodes:
+            if node.name == node_name:
+                for input_name in node.input:
+                    if input_name in retained_tensors:
+                        topological_sort(input_name)  # 递归排序依赖
+                sorted_nodes.append(node)
+
+    for node in pruned_nodes:
+        topological_sort(node.name)
+
+    # 构建新的模型图
+    pruned_graph = helper.make_graph(
+        nodes=sorted_nodes,
+        name=model.graph.name,
+        inputs=model.graph.input,
+        outputs=model.graph.output,
+        initializer=pruned_initializers,
+        value_info=pruned_value_infos,
+    )
+    pruned_model = helper.make_model(pruned_graph)
+
+    # 保存剪枝后的模型
+    output_path = Path(output_dir) / "pruned_model.onnx"
+    onnx.save(pruned_model, str(output_path))
+    print(f"Pruned model saved to: {output_path}")
+    return output_path

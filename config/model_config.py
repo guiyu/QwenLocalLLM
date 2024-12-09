@@ -9,6 +9,7 @@ class ModelConfig:
     # 修改模型相关路径为绝对路径
     MODEL_DIR = PROJECT_ROOT / "models"
     ORIGINAL_MODEL_DIR = MODEL_DIR / "original"
+    PRUNED_MODEL_DIR = MODEL_DIR / "pruned"  # 添加剪枝模型目录
     QUANTIZED_MODEL_DIR = MODEL_DIR / "quantized"
     ANDROID_MODEL_DIR = MODEL_DIR / "android"
     
@@ -17,6 +18,8 @@ class ModelConfig:
     QUANTIZED_MODEL_PATH = QUANTIZED_MODEL_DIR / "model_quantized.onnx"
     
     # 确保目录存在
+    PRUNED_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    QUANTIZED_MODEL_DIR.mkdir(parents=True, exist_ok=True)
     ORIGINAL_MODEL_DIR.mkdir(parents=True, exist_ok=True)
     ANDROID_MODEL_DIR.mkdir(parents=True, exist_ok=True)
     # 模型配置
