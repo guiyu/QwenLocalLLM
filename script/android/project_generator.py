@@ -401,6 +401,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            crunchPngs false // 禁用 PNG 压缩
+            shrinkResources false // 禁用资源压缩
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
@@ -429,8 +433,8 @@ dependencies {
             gradle_properties = """
 android.useAndroidX=true
 android.enableJetifier=true
-org.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8
-org.gradle.parallel=true
+org.gradle.jvmargs=-Xmx4g -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
+org.gradle.parallel=false
 org.gradle.daemon=true
 org.gradle.caching=true
 android.enableR8.fullMode=false
