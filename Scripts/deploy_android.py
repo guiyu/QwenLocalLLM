@@ -1,90 +1,94 @@
 # 文件路径: scripts/deploy_android.py
-# 新建文件
 
-import sys
-from pathlib import Path
 import logging
 import shutil
-import argparse
-# 添加项目根目录到环境变量
-project_root = Path(__file__).parent.parent
-sys.path.append(str(project_root))
+from pathlib import Path
+import subprocess
+import os
 
-from config.model_config import ModelConfig
-from script.convert.android_converter import convert_for_android
-from script.android.project_generator import generate_android_project
-
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def deploy_pipeline(config):
+def deploy_to_android(model_path: Path, android_dir: Path) -> bool:
+    """部署到Android项目"""
     try:
-        # 1. 转换模型
-        logger.info("Step 1: Converting model for Android")
-        conversion_paths = convert_for_android(
-            model_path=config.QUANTIZED_MODEL_DIR,
-            output_dir=config.ANDROID_MODEL_DIR,
-            config=config
-        )
-        
-        # 2. 生成Android项目 - 添加这部分
-        logger.info("Step 2: Generating Android project")
-        android_paths = generate_android_project(config)
-        
-        # 3. 复制模型和相关文件到Android项目
-        logger.info("Step 3: Copying assets to Android project")
-        assets_dir = Path(android_paths["assets_dir"])
-        shutil.copytree(
-            config.ANDROID_MODEL_DIR,
-            assets_dir,
-            dirs_exist_ok=True
-        )
-        
-        return True
-    except Exception as e:
-        logger.error(f"部署过程中出错: {str(e)}")
-        return False
-    
-def setup_argument_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description='Android Deployment Script')
-    parser.add_argument(
-        '--basic',
-        action='store_true',
-        help='Use basic mode without optimizations'
-    )
-    return parser
+        # 1. 确保Android项目目录存在
+        if not android_dir.exists():
+            raise Exception(f"Android project directory not found: {android_dir}")
 
-def main():
-    try:
-        logger.info("Starting Android deployment process...")
-        parser = setup_argument_parser()
-        args = parser.parse_args()
+        # 2. 复制模型文件到assets目录
+        assets_dir = android_dir / "app/src/main/assets/models"
+        assets_dir.mkdir(parents=True, exist_ok=True)
         
-        # 使用绝对路径并进行详细检查
-        model_dir = project_root / "models" / "original"
-        output_dir = project_root / "models" / "android"
+        target_path = assets_dir / "model_quantized.onnx"
+        shutil.copy2(str(model_path), str(target_path))
         
-        # 检查model_dir是否存在且包含必要的文件
-        logger.info(f"Checking model directory: {model_dir}")
-        if not model_dir.exists():
-            raise FileNotFoundError(f"Model directory not found: {model_dir}")
-            
-        # 列出model_dir中的文件
-        model_files = list(model_dir.glob('*'))
-        if not model_files:
-            raise FileNotFoundError(f"No files found in model directory: {model_dir}")
-        
-        logger.info(f"Found model files: {[f.name for f in model_files]}")
-        
-        # 执行完整的部署流程
-        success = deploy_pipeline(ModelConfig)  # 添加这一行
-        
-        return success
-        
+        logger.info(f"Model copied to {target_path}")
+
+        # 3. 更新local.properties
+        update_local_properties(android_dir)
+
+        # 4. 执行Gradle构建
+        if not build_android_project(android_dir):
+            raise Exception("Android build failed")
+
+        # 5. 验证APK是否生成
+        apk_path = android_dir / "app/build/outputs/apk/debug/app-debug.apk"
+        if not apk_path.exists():
+            raise Exception("APK not found")
+
+        logger.info(f"APK generated at: {apk_path}")
+        return True
+
     except Exception as e:
-        logger.error(f"Deployment failed: {str(e)}")
+        logger.error(f"Deployment failed: {e}")
         return False
-    
-if __name__ == "__main__":
-    success = main()
-    sys.exit(0 if success else 1)
+
+def update_local_properties(android_dir: Path) -> None:
+    """更新local.properties文件"""
+    try:
+        # 获取SDK路径
+        sdk_path = os.getenv('ANDROID_HOME')
+        if not sdk_path:
+            sdk_path = str(Path.home() / "Android/Sdk")
+
+        # 获取NDK路径
+        ndk_path = os.getenv('ANDROID_NDK_HOME')
+        if not ndk_path:
+            ndk_path = str(Path(sdk_path) / "ndk-bundle")
+
+        # 写入local.properties
+        properties_file = android_dir / "local.properties"
+        with open(properties_file, 'w') as f:
+            f.write(f"sdk.dir={sdk_path}\n")
+            f.write(f"ndk.dir={ndk_path}\n")
+
+    except Exception as e:
+        raise Exception(f"Failed to update local.properties: {e}")
+
+def build_android_project(android_dir: Path) -> bool:
+    """构建Android项目"""
+    try:
+        # 确定gradlew路径
+        gradlew = str(android_dir / ("gradlew.bat" if os.name == "nt" else "gradlew"))
+        
+        # 添加执行权限
+        if os.name != "nt":
+            os.chmod(gradlew, 0o755)
+
+        # 执行构建
+        process = subprocess.run(
+            [gradlew, "assembleDebug"],
+            cwd=str(android_dir),
+            capture_output=True,
+            text=True
+        )
+
+        if process.returncode != 0:
+            logger.error(f"Build failed: {process.stderr}")
+            return False
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Build process failed: {e}")
+        return False

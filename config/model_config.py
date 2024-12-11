@@ -1,158 +1,106 @@
 # 文件路径: config/model_config.py
-# 新建文件
+
 from pathlib import Path
 
 class ModelConfig:
-    # 获取项目根目录的绝对路径
+    # 项目根路径
     PROJECT_ROOT = Path(__file__).parent.parent.resolve()
     
-    # 修改模型相关路径为绝对路径
+    # 模型相关路径
     MODEL_DIR = PROJECT_ROOT / "models"
     ORIGINAL_MODEL_DIR = MODEL_DIR / "original"
     QUANTIZED_MODEL_DIR = MODEL_DIR / "quantized"
     ANDROID_MODEL_DIR = MODEL_DIR / "android"
     
-    # 修改Android相关配置
-    ANDROID_OUTPUT_DIR = PROJECT_ROOT / "android"
-    QUANTIZED_MODEL_PATH = QUANTIZED_MODEL_DIR / "model_quantized.onnx"
-    
     # 确保目录存在
     ORIGINAL_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    QUANTIZED_MODEL_DIR.mkdir(parents=True, exist_ok=True)
     ANDROID_MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    # 模型配置
-    MODEL_VERSION = "Qwen/Qwen2.5-0.5B"
-    CACHE_DIR = "./model_cache"
-    OUTPUT_DIR = "./models/original"
     
-    # 训练相关配置
-    MAX_LENGTH = 512
-    BATCH_SIZE = 4
-    LEARNING_RATE = 2e-5
-    WEIGHT_DECAY = 0.01
+    # 基础模型配置
+    BASE_MODEL = "microsoft/phi-2"
+    MODEL_REVISION = "v1.0"
     
-    # 优化相关配置
-    PRUNING_AMOUNT = 0.3
-    QUANTIZATION_DTYPE = "int8"
+    # ASR配置
+    ASR_MODEL = "alphacep/wav2letter-tiny"
+    ASR_VERSION = "v1.0"
     
-    # 硬件相关配置
-    USE_CUDA = True
-    FP16_TRAINING = True
-
-    # 添加数据集相关配置
-    DATASET_DIR = "./data/tts_dataset"
-    TRAIN_BATCH_SIZE = 4
-    EVAL_BATCH_SIZE = 8
-    NUM_TEST_SAMPLES = 1000
-    DATASET_SPLIT_RATIO = 0.9
+    # TTS配置
+    TTS_MODEL = "coqui/fast-basic"
+    TTS_VERSION = "v1.0"
     
-    # TTS特定配置
-    MEL_BINS = 80
-    SAMPLE_RATE = 22050
-    HOP_LENGTH = 256
-
-    # 添加训练相关配置
-    NUM_EPOCHS = 10
-    TRAIN_BATCH_SIZE = 8
-    EVAL_BATCH_SIZE = 16
-    LEARNING_RATE = 2e-5
-    WEIGHT_DECAY = 0.01
-    WARMUP_STEPS = 500
-    LOGGING_STEPS = 100
-    SAVE_STEPS = 1000
+    # 量化配置
+    QUANTIZATION_CONFIG = {
+        'method': 'ggml',
+        'bits': 4,
+        'groupsize': 32,
+        'use_sparse': True
+    }
     
-    # 模型配置
-    hidden_size = 768  # 需要根据实际的模型配置设置
-    mel_bins = 80
-
-     # 剪枝相关配置
-    INITIAL_PRUNING_AMOUNT = 0.1
-    FINAL_PRUNING_AMOUNT = 0.3
-    PRUNING_STEPS = 3
+    # 内存配置
+    MEMORY_CONFIG = {
+        'total_limit': 1024 * 1024 * 1024,  # 1GB
+        'model_cache': 512 * 1024 * 1024,   # 512MB
+        'kv_cache': 256 * 1024 * 1024      # 256MB
+    }
     
-    # 量化相关配置
-    QUANTIZATION_TYPE = "dynamic"
-    QUANTIZATION_BITS = 8
-    ENABLE_OPTIMIZATION = True
-
- # Android相关配置
-    ANDROID_OUTPUT_DIR = "./android"
-    ANDROID_MODEL_DIR = "./models/android"
-    ANDROID_MIN_SDK = 21
-    ANDROID_TARGET_SDK = 31
+    # 优化配置
+    OPTIMIZATION_CONFIG = {
+        'thread_count': 4,
+        'batch_size': 8,
+        'use_fp16': True
+    }
     
-    # 模型路径
-    QUANTIZED_MODEL_PATH = "./models/quantized/model_quantized.onnx"
+    # 输出文件配置
+    OUTPUT_CONFIG = {
+        'quantized_model_name': 'model_quantized.onnx',
+        'model_config_name': 'config.json',
+        'vocab_file_name': 'vocab.txt'
+    }
     
-    # Android应用配置
-    ANDROID_APP_ID = "com.example.qwentts"
-    ANDROID_VERSION_CODE = 1
-    ANDROID_VERSION_NAME = "1.0"
-    
-    # 音频配置
-    AUDIO_SAMPLE_RATE = 22050
-    AUDIO_CHANNELS = 1  # MONO
-    AUDIO_BITS_PER_SAMPLE = 16
-    
-    # ONNX Runtime配置
-    ONNX_RUNTIME_VERSION = "1.14.0"
-    ONNX_THREAD_COUNT = 4
-    ONNX_ENABLE_OPENCL = False
-    
-    # 性能配置
-    INFERENCE_TIMEOUT = 30000  # 毫秒
-    ENABLE_CPU_ARENA = True
-    ENABLE_MEMORY_PATTERN = True
-    ENABLE_MEMORY_OPTIMIZATION = True
-    
-    # 调试配置
-    DEBUG_MODE = True
-    ENABLE_LOGGING = True
-    LOG_LEVEL = "INFO"
-    
-    # 资源文件配置
-    ASSETS_DIR_NAME = "models"
-    MODEL_FILENAME = "model_quantized.onnx"
-    CONFIG_FILENAME = "model_config.json"
-    
-    # TTS特定配置
-    MAX_TEXT_LENGTH = 1000
-    BATCH_SIZE = 1
-    MEL_CHANNELS = 80
-    
-    # 错误处理配置
-    MAX_RETRY_COUNT = 3
-    RETRY_DELAY_MS = 1000
+    # Android端性能目标
+    PERFORMANCE_TARGETS = {
+        'model_load_time': 3.0,    # 秒
+        'first_inference': 0.5,    # 秒
+        'inference_time': 0.2,     # 秒
+        'memory_usage': 1024,      # MB
+        'storage_size': 800        # MB
+    }
     
     @classmethod
-    def get_android_gradle_config(cls):
-        """获取Android Gradle配置"""
+    def get_model_paths(cls):
+        """获取模型文件路径"""
         return {
-            "compileSdkVersion": cls.ANDROID_TARGET_SDK,
-            "minSdkVersion": cls.ANDROID_MIN_SDK,
-            "targetSdkVersion": cls.ANDROID_TARGET_SDK,
-            "applicationId": cls.ANDROID_APP_ID,
-            "versionCode": cls.ANDROID_VERSION_CODE,
-            "versionName": cls.ANDROID_VERSION_NAME
+            'original': cls.ORIGINAL_MODEL_DIR,
+            'quantized': cls.QUANTIZED_MODEL_DIR,
+            'android': cls.ANDROID_MODEL_DIR,
+            'quantized_model': cls.QUANTIZED_MODEL_DIR / cls.OUTPUT_CONFIG['quantized_model_name']
         }
     
     @classmethod
-    def get_model_config(cls):
-        """获取模型配置"""
-        return {
-            "input_name": "input",
-            "output_name": "output",
-            "max_text_length": cls.MAX_TEXT_LENGTH,
-            "mel_channels": cls.MEL_CHANNELS,
-            "sample_rate": cls.AUDIO_SAMPLE_RATE,
-            "quantization_bits": 8,
-            "model_version": cls.ANDROID_VERSION_NAME
-        }
+    def get_quantization_config(cls):
+        """获取量化配置"""
+        return cls.QUANTIZATION_CONFIG
     
     @classmethod
-    def get_audio_config(cls):
-        """获取音频配置"""
-        return {
-            "sample_rate": cls.AUDIO_SAMPLE_RATE,
-            "channels": cls.AUDIO_CHANNELS,
-            "bits_per_sample": cls.AUDIO_BITS_PER_SAMPLE
-        }
+    def get_memory_config(cls):
+        """获取内存配置"""
+        return cls.MEMORY_CONFIG
+    
+    @classmethod
+    def get_optimization_config(cls):
+        """获取优化配置"""
+        return cls.OPTIMIZATION_CONFIG
+    
+    @classmethod
+    def validate_android_targets(cls, metrics):
+        """验证是否达到Android端性能目标"""
+        results = {}
+        for key, target in cls.PERFORMANCE_TARGETS.items():
+            if key in metrics:
+                results[key] = {
+                    'target': target,
+                    'actual': metrics[key],
+                    'achieved': metrics[key] <= target
+                }
+        return results

@@ -163,5 +163,10 @@ cython_debug/
 /model_cache
 /qwen_small_model
 /models
-/android
 /script/android/templates/.idea
+/android/.idea
+android/java_pid20592.hprof
+android/java_pid23836.hprof
+android/java_pid26720.hprof
+android/java_pid31472.hprof
+/android/.gradle
