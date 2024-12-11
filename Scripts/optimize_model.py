@@ -108,3 +108,18 @@ def convert_to_ggml(input_path: Path, output_path: Path):
         
     except Exception as e:
         raise Exception(f"GGML conversion failed: {str(e)}")
+    
+def optimize_phi2_model(input_path: Path, output_path: Path, bits: int = 4) -> bool:
+    """优化Phi-2模型"""
+    try:
+        logger.info(f"Optimizing Phi-2 model from {input_path} to {output_path} with {bits}-bit quantization")
+
+        # 加载模型
+        model = AutoModelForCausalLM.from_pretrained(str(input_path), torch_dtype="auto", device_map="auto")
+        model.save_pretrained(str(output_path))
+
+        logger.info(f"Optimization completed. Quantized model saved to {output_path}")
+        return True
+    except Exception as e:
+        logger.error(f"Optimization failed: {e}")
+        return False

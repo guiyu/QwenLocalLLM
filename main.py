@@ -19,6 +19,10 @@ from utils.logger_config import LoggerConfig
 from utils.exceptions import QwenTTSError, handle_exception
 from utils.helpers import Utils
 from script.deploy.deployment_manager import DeploymentManager
+from scripts.optimize_model import optimize_phi2_model
+
+logging.basicConfig(level=logging.DEBUG)
+
 
 # 设置日志
 logger = LoggerConfig.setup_logger(
