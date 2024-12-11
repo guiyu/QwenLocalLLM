@@ -1,6 +1,7 @@
 # 文件路径: config/model_config.py
 
 from pathlib import Path
+from .env_config import EnvConfig
 
 class ModelConfig:
     # 项目根路径
@@ -20,6 +21,7 @@ class ModelConfig:
     # 基础模型配置
     BASE_MODEL = "microsoft/phi-2"
     MODEL_REVISION = "v1.0"
+    HF_CACHE_DIR = EnvConfig.HF_CACHE_DIR
     
     # ASR配置
     ASR_MODEL = "alphacep/wav2letter-tiny"
