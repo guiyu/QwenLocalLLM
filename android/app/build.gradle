@@ -19,6 +19,14 @@ android {
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a'
         }
+        
+        // CMake配置
+        externalNativeBuild {
+            cmake {
+                cppFlags ""
+                arguments "-DANDROID_STL=c++_shared"
+            }
+        }
     }
 
     buildTypes {
@@ -33,6 +41,14 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
     
+    // CMake构建配置
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.22.1"
+        }
+    }
+    
     // MTK设备优化
     splits {
         abi {
@@ -42,15 +58,20 @@ android {
             universalApk false
         }
     }
+    
+    // 资源配置
+    sourceSets {
+        main {
+            assets.srcDirs = ['src/main/assets']
+            jniLibs.srcDirs = ['libs']
+        }
+    }
 }
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.9.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-    
-    // ONNX Runtime
-    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.14.0'
     
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'

@@ -9,29 +9,36 @@ import os
 logger = logging.getLogger(__name__)
 
 def deploy_to_android(model_path: Path, android_dir: Path) -> bool:
-    """部署到Android项目"""
+    """部署GGML模型到Android项目"""
     try:
         # 1. 确保Android项目目录存在
         if not android_dir.exists():
             raise Exception(f"Android project directory not found: {android_dir}")
 
-        # 2. 复制模型文件到assets目录
+        # 2. 复制GGML模型文件到assets目录
         assets_dir = android_dir / "app/src/main/assets/models"
         assets_dir.mkdir(parents=True, exist_ok=True)
         
-        target_path = assets_dir / "model_quantized.onnx"
+        # 复制并重命名为model.ggml
+        target_path = assets_dir / "model.ggml"
         shutil.copy2(str(model_path), str(target_path))
-        
         logger.info(f"Model copied to {target_path}")
 
-        # 3. 更新local.properties
+        # 3. 确保GGML源码存在
+        ggml_dir = android_dir / "app/src/main/cpp/ggml"
+        if not ggml_dir.exists():
+            os.makedirs(ggml_dir)
+            # 这里应该复制GGML源码文件
+            # TODO: 添加GGML源码复制逻辑
+
+        # 4. 更新local.properties
         update_local_properties(android_dir)
 
-        # 4. 执行Gradle构建
+        # 5. 执行Gradle构建
         if not build_android_project(android_dir):
             raise Exception("Android build failed")
 
-        # 5. 验证APK是否生成
+        # 6. 验证APK是否生成
         apk_path = android_dir / "app/build/outputs/apk/debug/app-debug.apk"
         if not apk_path.exists():
             raise Exception("APK not found")
@@ -54,13 +61,14 @@ def update_local_properties(android_dir: Path) -> None:
         # 获取NDK路径
         ndk_path = os.getenv('ANDROID_NDK_HOME')
         if not ndk_path:
-            ndk_path = str(Path(sdk_path) / "ndk-bundle")
+            ndk_path = str(Path(sdk_path) / "ndk/25.2.9519653")
 
         # 写入local.properties
         properties_file = android_dir / "local.properties"
         with open(properties_file, 'w') as f:
             f.write(f"sdk.dir={sdk_path}\n")
             f.write(f"ndk.dir={ndk_path}\n")
+            f.write("cmake.dir=${sdk.dir}/cmake/3.22.1") # 添加CMake路径
 
     except Exception as e:
         raise Exception(f"Failed to update local.properties: {e}")
@@ -77,7 +85,7 @@ def build_android_project(android_dir: Path) -> bool:
 
         # 执行构建
         process = subprocess.run(
-            [gradlew, "assembleDebug"],
+            [gradlew, "clean", "assembleDebug"],
             cwd=str(android_dir),
             capture_output=True,
             text=True

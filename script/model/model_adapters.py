@@ -1,14 +1,12 @@
 # 文件路径: script/model/model_adapter.py
 
 import torch
-import torch.nn as nn
+from pathlib import Path
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import logging
-from pathlib import Path
-import onnx
-import onnxruntime as ort
 import numpy as np
-import json
+
+from utils.exceptions import ModelError
 
 logger = logging.getLogger(__name__)
 
@@ -18,157 +16,140 @@ class BaseModelAdapter:
         self.config = config
         self.model = None
         self.tokenizer = None
-        
+
     def load_model(self):
         """加载模型"""
         raise NotImplementedError
-        
-    def optimize_for_mobile(self):
-        """移动端优化"""
-        raise NotImplementedError
-        
-    def export_to_onnx(self):
-        """导出ONNX格式"""
+
+    def export_weights(self):
+        """导出模型权重"""
         raise NotImplementedError
 
 class PhiModelAdapter(BaseModelAdapter):
     """Phi-2模型适配器"""
+    def __init__(self, config):
+        super().__init__(config)
+        self.model_name = "microsoft/phi-2"
+
     def load_model(self):
         """加载Phi-2模型"""
         try:
-            logger.info(f"Loading Phi-2 model from {self.config.BASE_MODEL}")
+            logger.info(f"Loading Phi-2 model from {self.model_name}")
+            
+            # 加载tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(
-                self.config.BASE_MODEL,
+                self.model_name,
                 trust_remote_code=True
             )
+            
+            # 加载模型
             self.model = AutoModelForCausalLM.from_pretrained(
-                self.config.BASE_MODEL,
+                self.model_name,
                 torch_dtype=torch.float16,
                 trust_remote_code=True
             )
-            return True
-        except Exception as e:
-            logger.error(f"Error loading model: {str(e)}")
-            return False
             
-    def optimize_for_mobile(self):
-        """为移动设备优化模型"""
-        try:
             self.model.eval()
-            # 应用量化策略
-            quantization_config = self.config.get_quantization_config()
-            if quantization_config['method'] == 'ggml':
-                return self._apply_ggml_quantization()
-            else:
-                return self._apply_default_quantization()
-        except Exception as e:
-            logger.error(f"Error optimizing model: {str(e)}")
-            return False
-            
-    def _apply_ggml_quantization(self):
-        """应用GGML量化"""
-        try:
-            import ggml
-            config = self.config.get_quantization_config()
-            
-            # 执行GGML量化
-            quantized_model = ggml.quantize(
-                self.model,
-                bits=config['bits'],
-                groupsize=config['groupsize'],
-                use_sparse=config['use_sparse']
-            )
-            
-            # 保存量化后的模型
-            save_path = self.config.QUANTIZED_MODEL_DIR / "model_ggml.bin"
-            ggml.save_model(quantized_model, str(save_path))
-            
             return True
+            
         except Exception as e:
-            logger.error(f"GGML quantization failed: {str(e)}")
-            return False
-    
-    def export_to_onnx(self):
-        """导出为ONNX格式"""
+            logger.error(f"Failed to load Phi-2 model: {e}")
+            raise ModelError(f"Failed to load Phi-2 model: {e}")
+
+    def export_weights(self, output_path: Path):
+        """导出权重为GGML格式"""
         try:
-            # 准备示例输入
-            dummy_input = torch.randint(100, (1, 32))
+            if not self.model:
+                raise ModelError("Model not loaded")
+
+            logger.info("Exporting model weights...")
+            weights = {}
             
-            # ONNX导出路径
-            onnx_path = self.config.QUANTIZED_MODEL_DIR / "model.onnx"
-            
-            # 导出配置
-            dynamic_axes = {
-                'input_ids': {0: 'batch', 1: 'sequence'},
-                'logits': {0: 'batch', 1: 'sequence'}
-            }
-            
-            # 导出模型
-            torch.onnx.export(
-                self.model,
-                dummy_input,
-                str(onnx_path),
-                opset_version=14,
-                input_names=['input_ids'],
-                output_names=['logits'],
-                dynamic_axes=dynamic_axes
-            )
-            
-            # 验证导出的模型
-            self._verify_onnx_model(str(onnx_path))
-            
-            return str(onnx_path)
-        except Exception as e:
-            logger.error(f"ONNX export failed: {str(e)}")
-            return None
-            
-    def _verify_onnx_model(self, model_path):
-        """验证ONNX模型"""
-        try:
-            # 加载并检查模型
-            onnx_model = onnx.load(model_path)
-            onnx.checker.check_model(onnx_model)
-            
-            # 使用ONNX Runtime验证
-            session = ort.InferenceSession(
-                model_path,
-                providers=['CPUExecutionProvider']
-            )
-            
-            # 准备输入数据
-            input_shape = (1, 32)
-            input_data = np.random.randint(0, 100, input_shape).astype(np.int64)
-            ort_inputs = {'input_ids': input_data}
-            
-            # 运行推理
-            session.run(None, ort_inputs)
-            
-            logger.info("ONNX model verification successful")
+            # 收集所有权重
+            for name, param in self.model.named_parameters():
+                if param.requires_grad:
+                    weights[name] = param.detach().cpu().numpy()
+
+            # 确保输出目录存在
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # 写入二进制文件
+            with open(output_path, 'wb') as f:
+                # 写入头信息
+                header = {
+                    'version': 1,
+                    'n_weights': len(weights),
+                }
+                np.save(f, header)
+                
+                # 写入权重
+                for name, weight in weights.items():
+                    name_bytes = name.encode('utf-8')
+                    f.write(len(name_bytes).to_bytes(4, byteorder='little'))
+                    f.write(name_bytes)
+                    
+                    # 写入权重形状
+                    shape = np.array(weight.shape, dtype=np.int32)
+                    shape.tofile(f)
+                    
+                    # 写入权重数据
+                    weight.tofile(f)
+
+            logger.info(f"Model weights exported to {output_path}")
             return True
+
         except Exception as e:
-            logger.error(f"ONNX model verification failed: {str(e)}")
-            raise
+            logger.error(f"Failed to export model weights: {e}")
+            raise ModelError(f"Failed to export model weights: {e}")
 
 class WhisperAdapter(BaseModelAdapter):
     """Whisper ASR模型适配器"""
+    def __init__(self, config):
+        super().__init__(config)
+        self.model_name = "alphacep/wav2letter-tiny"
+
     def load_model(self):
+        """加载Whisper模型"""
         try:
-            # 实现Whisper模型加载
-            logger.info("Loading Whisper model")
-            # TODO: 实现Whisper.cpp加载逻辑
+            # TODO: 实现Whisper模型加载
+            logger.info("WhisperAdapter: load_model not implemented yet")
             return True
         except Exception as e:
-            logger.error(f"Error loading Whisper model: {str(e)}")
-            return False
+            logger.error(f"Failed to load Whisper model: {e}")
+            raise ModelError(f"Failed to load Whisper model: {e}")
+
+    def export_weights(self, output_path: Path):
+        """导出Whisper权重"""
+        try:
+            # TODO: 实现Whisper权重导出
+            logger.info("WhisperAdapter: export_weights not implemented yet")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to export Whisper weights: {e}")
+            raise ModelError(f"Failed to export Whisper weights: {e}")
 
 class FastSpeechAdapter(BaseModelAdapter):
-    """FastSpeech2 TTS模型适配器"""
+    """FastSpeech TTS模型适配器"""
+    def __init__(self, config):
+        super().__init__(config)
+        self.model_name = "coqui/fast-basic"
+
     def load_model(self):
+        """加载FastSpeech模型"""
         try:
-            # 实现FastSpeech2模型加载
-            logger.info("Loading FastSpeech2 model")
-            # TODO: 实现FastSpeech2加载逻辑
+            # TODO: 实现FastSpeech模型加载
+            logger.info("FastSpeechAdapter: load_model not implemented yet")
             return True
         except Exception as e:
-            logger.error(f"Error loading FastSpeech2 model: {str(e)}")
-            return False
+            logger.error(f"Failed to load FastSpeech model: {e}")
+            raise ModelError(f"Failed to load FastSpeech model: {e}")
+
+    def export_weights(self, output_path: Path):
+        """导出FastSpeech权重"""
+        try:
+            # TODO: 实现FastSpeech权重导出
+            logger.info("FastSpeechAdapter: export_weights not implemented yet")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to export FastSpeech weights: {e}")
+            raise ModelError(f"Failed to export FastSpeech weights: {e}")

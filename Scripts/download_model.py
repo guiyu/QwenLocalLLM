@@ -35,7 +35,7 @@ def download_phi2_model(output_path: Path) -> bool:
         # 验证文件是否存在
         required_files = [
             "config.json",
-            "model.safetensors",
+            "model.safetensors.index.json",
             "tokenizer.json",
             "tokenizer_config.json"
         ]
