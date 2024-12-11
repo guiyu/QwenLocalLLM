@@ -20,7 +20,12 @@ class QuantizationOptimizer:
         """量化模型"""
         try:
             logger.info(f"Starting model quantization for {model_path}")
-            
+
+                # 确保使用int4量化参数
+            if self.quantization_config['bits'] != 4:
+                logger.warning("Forcing 4-bit quantization as per requirement")
+                self.quantization_config['bits'] = 4
+                
             if self.quantization_config['method'] == 'ggml':
                 return self._apply_ggml_quantization(model_path)
             else:

@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">QwenTTS</string>
+    <string name="loading_model">Loading model...</string>
+    <string name="loading_error">Failed to load model</string>
+    <string name="permission_required">Required permissions are not granted</string>
+    <string name="model_loaded">Model loaded successfully</string>
+    <string name="preparing_inference">Preparing inference engine...</string>
+    <string name="run_model">Run Model</string>
+    <string name="voice_input">Voice Input</string>
+    <string name="result_text">Result:</string>
 </resources>

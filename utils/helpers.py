@@ -98,3 +98,58 @@ class Utils:
                 return f"{size_bytes:.2f} {unit}"
             size_bytes /= 1024
         return f"{size_bytes:.2f} PB"
+    
+    def verify_model_files(self, model_dir: Path) -> bool:
+        """验证模型文件的完整性和正确性"""
+        try:
+            required_files = {
+                "model_quantized.onnx": {
+                    "min_size": 100 * 1024 * 1024,  # 100MB最小大小
+                    "signature": b"ONNX"  # ONNX文件标识
+                },
+                "vocab.json": {
+                    "min_size": 100 * 1024,  # 100KB最小大小
+                    "required_keys": ["model_type", "vocab"]
+                },
+                "config.json": {
+                    "min_size": 1024,  # 1KB最小大小
+                    "required_keys": ["model_type", "architectures"]
+                }
+            }
+
+            for filename, checks in required_files.items():
+                file_path = model_dir / filename
+                if not file_path.exists():
+                    logger.error(f"Missing required file: {filename}")
+                    return False
+
+                # 检查文件大小
+                if file_path.stat().st_size < checks["min_size"]:
+                    logger.error(f"File too small: {filename}")
+                    return False
+
+                # 检查文件格式
+                with open(file_path, "rb") as f:
+                    if filename.endswith(".onnx"):
+                        # 验证ONNX文件头
+                        header = f.read(4)
+                        if header != checks["signature"]:
+                            logger.error(f"Invalid ONNX file: {filename}")
+                            return False
+                    elif filename.endswith(".json"):
+                        # 验证JSON文件结构
+                        import json
+                        try:
+                            data = json.load(f)
+                            for key in checks["required_keys"]:
+                                if key not in data:
+                                    logger.error(f"Missing key in {filename}: {key}")
+                                    return False
+                        except json.JSONDecodeError:
+                            logger.error(f"Invalid JSON file: {filename}")
+                            return False
+
+            return True
+        except Exception as e:
+            logger.error(f"Model verification failed: {e}")
+            return False
