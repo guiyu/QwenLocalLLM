@@ -102,6 +102,25 @@ class MobileLLMPipeline:
             logger.error(f"Model optimization failed: {e}")
             return False
         
+    def deploy_android(self) -> bool:
+        """部署模型到 Android"""
+        logger.info("Starting Android deployment...")
+        from scripts.deploy_android import deploy_to_android
+        
+        try:
+            model_path = self.model_dir / "quantized" / "model_quantized.onnx"  # 假设这是量化后的模型路径
+            android_dir = self.android_dir  # Android 项目路径
+            
+            success = deploy_to_android(model_path, android_dir)
+            if not success:
+                raise Exception("Android deployment failed")
+            
+            logger.info("Android deployment completed successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Android deployment failed: {e}")
+            return False
+        
     @handle_exception
     def validate_environment(self) -> bool:
         """验证环境配置"""

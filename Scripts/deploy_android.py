@@ -5,6 +5,8 @@ import shutil
 from pathlib import Path
 import subprocess
 import os
+import subprocess
+import locale
 
 logger = logging.getLogger(__name__)
 
@@ -74,29 +76,31 @@ def update_local_properties(android_dir: Path) -> None:
         raise Exception(f"Failed to update local.properties: {e}")
 
 def build_android_project(android_dir: Path) -> bool:
-    """构建Android项目"""
+    """构建 Android 项目"""
     try:
-        # 确定gradlew路径
+        # 确定 gradlew 路径
         gradlew = str(android_dir / ("gradlew.bat" if os.name == "nt" else "gradlew"))
         
-        # 添加执行权限
+        # 添加执行权限（非 Windows 系统）
         if os.name != "nt":
             os.chmod(gradlew, 0o755)
-
-        # 执行构建
+        
+        # 执行 Gradle 构建
         process = subprocess.run(
             [gradlew, "clean", "assembleDebug"],
             cwd=str(android_dir),
             capture_output=True,
-            text=True
+            text=True,  # 确保输出为文本格式
+            encoding="utf-8"  # 强制使用 UTF-8 编码解析输出
         )
-
+        
         if process.returncode != 0:
             logger.error(f"Build failed: {process.stderr}")
             return False
-
+        
+        logger.info("Build completed successfully.")
         return True
-
+    
     except Exception as e:
         logger.error(f"Build process failed: {e}")
         return False
